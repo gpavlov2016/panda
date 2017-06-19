@@ -53,6 +53,9 @@ int started_signal_detected = 0;
 // TODO: check for UART high
 int did_usb_enumerate = 0;
 
+// Declare puts to supress warning
+int puts ( const char * str );
+
 // ********************* instantiate queues *********************
 
 typedef struct {
@@ -73,7 +76,7 @@ can_buffer(tx3_q, 0x100)
 
 // ********************* interrupt safe queue *********************
 
-inline int pop(can_ring *q, CAN_FIFOMailBox_TypeDef *elem) {
+int pop(can_ring *q, CAN_FIFOMailBox_TypeDef *elem) {
   if (q->w_ptr != q->r_ptr) {
     *elem = q->elems[q->r_ptr];
     if ((q->r_ptr + 1) == q->fifo_size) q->r_ptr = 0;
@@ -83,7 +86,7 @@ inline int pop(can_ring *q, CAN_FIFOMailBox_TypeDef *elem) {
   return 0;
 }
 
-inline int push(can_ring *q, CAN_FIFOMailBox_TypeDef *elem) {
+int push(can_ring *q, CAN_FIFOMailBox_TypeDef *elem) {
   uint32_t next_w_ptr;
   if ((q->w_ptr + 1) == q->fifo_size) next_w_ptr = 0;
   else next_w_ptr = q->w_ptr + 1;
@@ -111,8 +114,8 @@ typedef struct uart_ring {
   void (*callback)(struct uart_ring*);
 } uart_ring;
 
-inline int getc(uart_ring *q, char *elem);
-inline int putc(uart_ring *q, char elem);
+int getc(uart_ring *q, char *elem);
+int putc(uart_ring *q, char elem);
 
 // esp = USART1
 uart_ring esp_ring = { .w_ptr_tx = 0, .r_ptr_tx = 0,
@@ -175,7 +178,7 @@ void accord_framing_callback(uart_ring *q) {
     }
     r_ptr_rx_tmp++;
   }
-  
+
   // drop until SOF1
   if (sof1 != -1) {
     for (i = 0; i < jlen; i++) getc(q, &junk);
@@ -285,7 +288,7 @@ void UART5_IRQHandler(void) {
   NVIC_EnableIRQ(UART5_IRQn);
 }
 
-inline int getc(uart_ring *q, char *elem) {
+int getc(uart_ring *q, char *elem) {
   if (q->w_ptr_rx != q->r_ptr_rx) {
     *elem = q->elems_rx[q->r_ptr_rx];
     q->r_ptr_rx += 1;
@@ -294,7 +297,7 @@ inline int getc(uart_ring *q, char *elem) {
   return 0;
 }
 
-inline int injectc(uart_ring *q, char elem) {
+int injectc(uart_ring *q, char elem) {
   uint8_t next_w_ptr = q->w_ptr_rx + 1;
   int ret = 0;
   if (next_w_ptr != q->r_ptr_rx) {
@@ -305,7 +308,7 @@ inline int injectc(uart_ring *q, char elem) {
   return ret;
 }
 
-inline int putc(uart_ring *q, char elem) {
+int putc(uart_ring *q, char elem) {
   uint8_t next_w_ptr = q->w_ptr_tx + 1;
   int ret = 0;
   if (next_w_ptr != q->r_ptr_tx) {
@@ -657,7 +660,13 @@ int usb_cb_control_msg(USB_Setup_TypeDef *setup, uint8_t *resp, int hardwired) {
       }
       break;
     case 0xdb: // toggle GMLAN
-      set_can2_mode(setup->b.wValue.w);
+      if (setup->b.wIndex.w == 3) {
+        set_can_mode(2, 0);
+        set_can_mode(3, setup->b.wValue.w);
+      } else {
+        set_can_mode(3, 0);
+        set_can_mode(2, setup->b.wValue.w);
+      }
       break;
     case 0xdc: // set controls allowed
       controls_allowed = setup->b.wValue.w == 0x1337;
@@ -1029,4 +1038,3 @@ int main() {
 
   return 0;
 }
-
