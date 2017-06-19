@@ -1,3 +1,10 @@
+#ifdef STM32F4
+  #define PANDA
+  #include "stm32f4xx.h"
+#else
+  #include "stm32f2xx.h"
+#endif
+
 #define ENTER_BOOTLOADER_MAGIC 0xdeadbeef
 #define POST_BOOTLOADER_MAGIC 0xdeadb111
 extern uint32_t enter_bootloader_mode;

@@ -374,6 +374,8 @@ void CAN3_TX_IRQHandler() {
 }
 #endif
 
+void elm_tx_cb(CAN_FIFOMailBox_TypeDef *can_pkt);   //from elm327.c
+
 // CAN receive handlers
 // blink blue when we are receiving CAN messages
 void can_rx(CAN_TypeDef *CAN, int can_number) {
@@ -393,6 +395,9 @@ void can_rx(CAN_TypeDef *CAN, int can_number) {
 
     set_led(LED_BLUE, 1);
     push(&can_rx_q, &to_push);
+
+    //Send also through elm327 i/f emulator:
+    elm_tx_cb(&to_push);
 
     // next
     CAN->RF0R |= CAN_RF0R_RFOM0;
