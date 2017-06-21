@@ -1,4 +1,4 @@
-//u#include "ets_sys.h"
+#include "ets_sys.h"
 #include "osapi.h"
 #include "gpio.h"
 #include "os_type.h"
@@ -6,7 +6,11 @@
 #include "espconn.h"
 #include <stdio.h>
 
+#include "stm32f4xx.h"
+
 #include "driver/uart.h"
+
+#include "can.h"
 
 #define ELM_PORT 35000
 //#define espconn_send_string(conn, x) espconn_send(conn, x, strlen(x))
@@ -103,19 +107,19 @@ void espconn_send_string(struct espconn *conn, char *str) {
         offset = strlen(elm_recvData);
     }
     strcpy(rsp_buf + offset, elm_resp);
-    espconn_send(conn, rsp_buf, strlen(rsp_buf))
+    espconn_send(conn, rsp_buf, strlen(rsp_buf));
 }
 
 
-//Some code is taken from https://github.com/robots/STM32/blob/master/can_encoders/can.c
+//Some code is insipired by https://github.com/robots/STM32/blob/master/can_encoders/can.c
 
 
 //Sends the data received on the CAN bus onto serial interface emulating elm327
 void ICACHE_FLASH_ATTR elm_tx_cb(CAN_FIFOMailBox_TypeDef *can_pkt) {
     if (can_flag.can_monitor == '1') {
         //Copy the data to response buffer
-        *((uint_32_t *)(elm_resp + 0                     ) = can_pkt->RDLR;
-        *((uint_32_t *)(elm_resp + sizeof(can_pkt->RDLR))) = can_pkt->RDHR;
+        *((uint32_t *)(elm_resp + 0                    )) = can_pkt->RDLR;
+        *((uint32_t *)(elm_resp + sizeof(can_pkt->RDLR))) = can_pkt->RDHR;
 
         //Send the data
         espconn_send_string(&elm_conn, elm_resp);
@@ -145,7 +149,7 @@ static void ICACHE_FLASH_ATTR elm_rx_cb(void *arg, char *data, uint16_t len) {
   can_flag.can_monitor = 0;
 
   if (elm_strcmp(data, "AT") == 0) {
-    int hhh = shex2int(&(data[3]);
+    int hhh = shex2int(&(data[3]));
     int filter;
     int mask;
 
@@ -210,19 +214,19 @@ static void ICACHE_FLASH_ATTR elm_rx_cb(void *arg, char *data, uint16_t len) {
       strcpy(elm_resp,ELM_NA);
     } else if (elm_strcmp(data, "MA\r") == 0) {   //Monitor all
       //Clear all filters:
-      can_filters_clear();
+      can_filters_clear(CAN1);
       //Start monitoring
       can_flag.can_monitor = '1';
       strcpy(elm_resp,ELM_OK);
     } else if (elm_strcmp(data, "MR") == 0) {   //Monitor messages with receiver id hh
-      hhh = shex2int(&(data[2]);
-      rid2filter(&filter, &mask);
+      hhh = shex2int(&(data[2]));
+      rid2filter(hhh, &filter, &mask);
       //Start monitoring
       can_flag.can_monitor = '1';
       strcpy(elm_resp,ELM_OK);
     } else if (elm_strcmp(data, "MT") == 0) {   //Monitor messages with transmitter id hh
-      hhh = shex2int(&(data[2]);
-      tid2filter(&filter, &mask);
+      hhh = shex2int(&(data[2]));
+      tid2filter(hhh, &filter, &mask);
       //Start monitoring
       can_flag.can_monitor = '1';
       strcpy(elm_resp,ELM_OK);
@@ -237,22 +241,22 @@ static void ICACHE_FLASH_ATTR elm_rx_cb(void *arg, char *data, uint16_t len) {
     } else if (elm_strcmp(data, "CEA") == 0) {   //use CAN extended address hh
       strcpy(elm_resp,ELM_NA);
     } else if (elm_strcmp(data, "CF") == 0) {   //set the id filter to hh hh hh hh or hhh
-      can_set_filter(shex2int(&(data[2]), -1); 
+      can_set_filter(CAN1, shex2int(&(data[2])), -1); 
       strcpy(elm_resp,ELM_OK);
     } else if (elm_strcmp(data, "CFC0") == 0) {   //CAN flow control off
       strcpy(elm_resp,ELM_NA);
     } else if (elm_strcmp(data, "CFC1") == 0) {   //CAN flow control on
       strcpy(elm_resp,ELM_NA);
     } else if (elm_strcmp(data, "CM") == 0) {   //Set CAN ID mask to hhh or hh hh hh hh 
-        can_set_filter(-1, shex2int(&(data[2])); 
+        can_set_filter(CAN1, -1, shex2int(&(data[2]))); 
         strcpy(elm_resp,ELM_OK);
     } else if (elm_strcmp(data, "CRA\r") == 0) {   //Reset CAN receive filters
-        can_filters_clear();
+        can_filters_clear(CAN1);
         strcpy(elm_resp,ELM_OK);
     } else if (elm_strcmp(data, "CRA") == 0) {   //Set CAN receive address to hhh or hh hh hh hh
-        hhh = shex2int(&(data[3]);
-        rid2filter(&filter, &mask);
-        can_set_filter(filter, mask); 
+        hhh = shex2int(&(data[3]));
+        rid2filter(hhh, &filter, &mask);
+        can_set_filter(CAN1, filter, mask); 
         strcpy(elm_resp,ELM_OK);
 
     } else if (elm_strcmp(data, "DPN") == 0) {
