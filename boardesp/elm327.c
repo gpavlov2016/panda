@@ -29,6 +29,12 @@ static int trans_flag = 0;
 static char dev_id[] = "4100BE3FA813";
 static char last_cmd[ELM_RCV_MAX_SIZE] = {0};
 
+//CAN driver related definitions:
+static CAN_HandleTypeDef CanHandle;
+
+#define CANx CAN1
+//END of CAN defs
+
 // Various constants.
 const char ELM_OK[] = "OK\r\r>";
 const char ELM_NA[] = "NA\r\r>";
@@ -115,11 +121,10 @@ void espconn_send_string(struct espconn *conn, char *str) {
 
 
 //Sends the data received on the CAN bus onto serial interface emulating elm327
-void ICACHE_FLASH_ATTR elm_tx_cb(CAN_FIFOMailBox_TypeDef *can_pkt) {
+void ICACHE_FLASH_ATTR elm_tx_cb(CAN_HandleTypeDef* hcan) {
     if (can_flag.can_monitor == '1') {
         //Copy the data to response buffer
-        *((uint32_t *)(elm_resp + 0                    )) = can_pkt->RDLR;
-        *((uint32_t *)(elm_resp + sizeof(can_pkt->RDLR))) = can_pkt->RDHR;
+        memcpy(elm_resp, hcan->pRxMsg->Data, sizeof(hcan->pRxMsg->Data));
 
         //Send the data
         espconn_send_string(&elm_conn, elm_resp);
@@ -142,6 +147,50 @@ void tid2filter(int tid, int *filter,  int *mask) {
 }
 
 
+// send on CAN
+void can_tx(uint8_t *data, int len) {
+
+    int dpkt = 0;
+    int i;
+    for (dpkt = 0; dpkt < len; dpkt += 0x10) {
+      uint32_t *tf = (uint32_t*)(&data[dpkt]);
+
+      CanHandle.pTxMsg->StdId = 0x11;
+      CanHandle.pTxMsg->RTR = CAN_RTR_DATA;
+      CanHandle.pTxMsg->IDE = CAN_ID_STD;
+      CanHandle.pTxMsg->DLC = 8;
+      CanHandle.pTxMsg->Data[0] = tf[3];
+      CanHandle.pTxMsg->Data[1] = tf[2];
+      
+      if(HAL_CAN_Transmit(&CanHandle, 10) != HAL_OK)
+      {
+        /* Transmition Error */
+        Error_Handler();
+      }
+      
+      if(HAL_CAN_GetState(&CanHandle) != HAL_CAN_STATE_READY)
+      {
+        return HAL_ERROR;
+      }
+    }
+}
+
+void can_filters_clear(CAN_TypeDef *CAN) {
+    // accept all filter
+    CAN->FMR |= CAN_FMR_FINIT;
+
+    // no mask
+    CAN->sFilterRegister[0].FR1 = 0;
+    CAN->sFilterRegister[0].FR2 = 0;
+    CAN->sFilterRegister[14].FR1 = 0;
+    CAN->sFilterRegister[14].FR2 = 0;
+    CAN->FA1R |= 1 | (1 << 14);
+
+    CAN->FMR &= ~(CAN_FMR_FINIT);
+}
+
+
+
 static void ICACHE_FLASH_ATTR elm_rx_cb(void *arg, char *data, uint16_t len) {
   struct espconn *conn = (struct espconn *)arg;
 
@@ -156,7 +205,7 @@ static void ICACHE_FLASH_ATTR elm_rx_cb(void *arg, char *data, uint16_t len) {
     data += 2;
     memset(elm_resp, 0, 128);
     if (elm_strcmp(data, "Z\r") == 0) {
-      can_init(CAN1);
+      can_init(CANx);
       strcpy(elm_resp,"ELM327 v2.1\r\r>");
     } else if (data[0] == 'E') {
       elm_flag.elm_echo = data[1];
@@ -241,14 +290,14 @@ static void ICACHE_FLASH_ATTR elm_rx_cb(void *arg, char *data, uint16_t len) {
     } else if (elm_strcmp(data, "CEA") == 0) {   //use CAN extended address hh
       strcpy(elm_resp,ELM_NA);
     } else if (elm_strcmp(data, "CF") == 0) {   //set the id filter to hh hh hh hh or hhh
-      can_set_filter(CAN1, shex2int(&(data[2])), -1); 
+      can_filter_config(CANx, shex2int(&(data[2])), -1); 
       strcpy(elm_resp,ELM_OK);
     } else if (elm_strcmp(data, "CFC0") == 0) {   //CAN flow control off
       strcpy(elm_resp,ELM_NA);
     } else if (elm_strcmp(data, "CFC1") == 0) {   //CAN flow control on
       strcpy(elm_resp,ELM_NA);
     } else if (elm_strcmp(data, "CM") == 0) {   //Set CAN ID mask to hhh or hh hh hh hh 
-        can_set_filter(CAN1, -1, shex2int(&(data[2]))); 
+        can_filter_config(CANx, -1, shex2int(&(data[2]))); 
         strcpy(elm_resp,ELM_OK);
     } else if (elm_strcmp(data, "CRA\r") == 0) {   //Reset CAN receive filters
         can_filters_clear(CAN1);
@@ -256,7 +305,7 @@ static void ICACHE_FLASH_ATTR elm_rx_cb(void *arg, char *data, uint16_t len) {
     } else if (elm_strcmp(data, "CRA") == 0) {   //Set CAN receive address to hhh or hh hh hh hh
         hhh = shex2int(&(data[3]));
         rid2filter(hhh, &filter, &mask);
-        can_set_filter(CAN1, filter, mask); 
+        can_filter_config(CANx, filter, mask); 
         strcpy(elm_resp,ELM_OK);
 
     } else if (elm_strcmp(data, "DPN") == 0) {
@@ -288,7 +337,7 @@ static void ICACHE_FLASH_ATTR elm_rx_cb(void *arg, char *data, uint16_t len) {
      }
     espconn_send_string(&elm_conn, elm_resp);
   } else { //pass the command to the CAN bus
-      usb_cb_ep3_out(data, 1, 0);
+      can_tx(data, strlen(data));
   }
   uart0_tx_buffer(elm_resp, strlen(elm_resp));
 }
@@ -299,7 +348,162 @@ void ICACHE_FLASH_ATTR elm_tcp_connect_cb(void *arg) {
   espconn_regist_recvcb(conn, elm_rx_cb);
 }
 
+/**
+  * @brief  This function is executed in case of error occurrence.
+  * @param  None
+  * @retval None
+  */
+static void Error_Handler(void)
+{
+  while(1)
+  {
+  }
+}
+
+
+/**
+  * @brief  System Clock Configuration
+  *         The system Clock is configured as follow : 
+  *            System Clock source            = PLL (HSI)
+  *            SYSCLK(Hz)                     = 100000000
+  *            HCLK(Hz)                       = 100000000
+  *            AHB Prescaler                  = 1
+  *            APB1 Prescaler                 = 2
+  *            APB2 Prescaler                 = 1
+  *            HSI Frequency(Hz)              = 16000000
+  *            PLL_M                          = 16
+  *            PLL_N                          = 200
+  *            PLL_P                          = 2
+  *            PLL_Q                          = 7
+  *            PLL_R                          = 2
+  *            VDD(V)                         = 3.3
+  *            Main regulator output voltage  = Scale1 mode
+  *            Flash Latency(WS)              = 5
+  * @param  None
+  * @retval None
+  */
+static void SystemClock_Config(void)
+{
+  RCC_ClkInitTypeDef RCC_ClkInitStruct;
+  RCC_OscInitTypeDef RCC_OscInitStruct;
+
+  /* Enable Power Control clock */
+  __HAL_RCC_PWR_CLK_ENABLE();
+
+  /* The voltage scaling allows optimizing the power consumption when the device is 
+     clocked below the maximum system frequency, to update the voltage scaling value 
+     regarding system frequency refer to product datasheet.  */
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+
+  /* Enable HSI Oscillator and activate PLL with HSI as source */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.HSICalibrationValue = 0x10;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLM = 16;
+  RCC_OscInitStruct.PLL.PLLN = 200;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 7;
+  RCC_OscInitStruct.PLL.PLLR = 2;
+  
+  if(HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  
+  /* Select PLL as system clock source and configure the HCLK, PCLK1 and PCLK2 
+     clocks dividers */
+  RCC_ClkInitStruct.ClockType = (RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2);
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;  
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;  
+  if(HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+/**
+  * @brief  Configures the CAN.
+  * @param  None
+  * @retval None
+  */
+static void can_config(void)
+{
+  CAN_FilterConfTypeDef  sFilterConfig;
+  static CanTxMsgTypeDef        TxMessage;
+  static CanRxMsgTypeDef        RxMessage;
+  
+  /*##-1- Configure the CAN peripheral #######################################*/
+  CanHandle.Instance = CAN1;
+  CanHandle.pTxMsg = &TxMessage;
+  CanHandle.pRxMsg = &RxMessage;
+    
+  CanHandle.Init.TTCM = DISABLE;
+  CanHandle.Init.ABOM = DISABLE;
+  CanHandle.Init.AWUM = DISABLE;
+  CanHandle.Init.NART = DISABLE;
+  CanHandle.Init.RFLM = DISABLE;
+  CanHandle.Init.TXFP = DISABLE;
+  CanHandle.Init.Mode = CAN_MODE_NORMAL;
+  CanHandle.Init.SJW = CAN_SJW_1TQ;
+  CanHandle.Init.BS1 = CAN_BS1_6TQ;
+  CanHandle.Init.BS2 = CAN_BS2_8TQ;
+  CanHandle.Init.Prescaler = 2;
+  
+  if(HAL_CAN_Init(&CanHandle) != HAL_OK)
+  {
+    /* Initialization Error */
+    Error_Handler();
+  }
+
+  /*##-2- Configure the CAN Filter ###########################################*/
+  sFilterConfig.FilterNumber = 0;
+  sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
+  sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
+  sFilterConfig.FilterIdHigh = 0x0000;
+  sFilterConfig.FilterIdLow = 0x0000;
+  sFilterConfig.FilterMaskIdHigh = 0x0000;
+  sFilterConfig.FilterMaskIdLow = 0x0000;
+  sFilterConfig.FilterFIFOAssignment = 0;
+  sFilterConfig.FilterActivation = ENABLE;
+  sFilterConfig.BankNumber = 14;
+  
+  if(HAL_CAN_ConfigFilter(&CanHandle, &sFilterConfig) != HAL_OK)
+  {
+    /* Filter configuration Error */
+    Error_Handler();
+  }
+      
+  /*##-3- Configure Transmission process #####################################*/
+  CanHandle.pTxMsg->StdId = 0x321;
+  CanHandle.pTxMsg->ExtId = 0x01;
+  CanHandle.pTxMsg->RTR = CAN_RTR_DATA;
+  CanHandle.pTxMsg->IDE = CAN_ID_STD;
+  CanHandle.pTxMsg->DLC = 2;
+}
+
+void can_init(CAN_TypeDef *CAN) {
+  HAL_Init();
+  
+  /* Configure the system clock to 168 MHz */
+  SystemClock_Config();
+  
+  /*##-1- Configure the CAN peripheral #######################################*/
+  CAN_Config();
+  
+  /*##-2- Start the Reception process and enable reception interrupt #########*/
+  if(HAL_CAN_Receive_IT(&CanHandle, CAN_FIFO0) != HAL_OK)
+  {
+    /* Reception Error */
+    Error_Handler();
+  }
+}
+
 void ICACHE_FLASH_ATTR elm327_init() {
+  can_init();
   // control listener
   elm_proto.local_port = ELM_PORT;
   elm_conn.type = ESPCONN_TCP;
@@ -307,5 +511,53 @@ void ICACHE_FLASH_ATTR elm327_init() {
   elm_conn.proto.tcp = &elm_proto;
   espconn_regist_connectcb(&elm_conn, elm_tcp_connect_cb);
   espconn_accept(&elm_conn);
+}
+
+void can_filters_clear(CAN_TypeDef *CAN) {
+    can_filter_config(CAN, 0, 0) {
+}
+
+//Sets the filter or the mask, assuming 32 bit filter 
+//-1 means the value should not change
+void can_filter_config(CAN_TypeDef *CAN, uint32_t filter, uint32_t mask) {
+
+  CAN_FilterConfTypeDef  sFilterConfig;
+
+  /*##-2- Configure the CAN Filter ###########################################*/
+  sFilterConfig.FilterNumber = 0;
+  sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
+  sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
+  sFilterConfig.FilterIdHigh = (filter >> 16);
+  sFilterConfig.FilterIdLow =  (filter & 0xFFFF);
+  sFilterConfig.FilterMaskIdHigh = (mask >> 16);
+  sFilterConfig.FilterMaskIdLow =  (mask & 0xFFFF);
+  sFilterConfig.FilterFIFOAssignment = 0;
+  sFilterConfig.FilterActivation = ENABLE;
+  sFilterConfig.BankNumber = 14;
+  
+  if(HAL_CAN_ConfigFilter(&CanHandle, &sFilterConfig) != HAL_OK)
+  {
+    /* Filter configuration Error */
+    Error_Handler();
+  }
+}
+
+/**
+  * @brief  Transmission complete callback in non blocking mode 
+  * @param  CanHandle: pointer to a CAN_HandleTypeDef structure that contains
+  *         the configuration information for the specified CAN.
+  * @retval None
+  */
+//Do not change the signature of this function
+void HAL_CAN_RxCpltCallback(CAN_HandleTypeDef* CanHandle)
+{
+  /* Receive */
+  if(HAL_CAN_Receive_IT(CanHandle, CAN_FIFO0) != HAL_OK)
+  {
+    /* Reception Error */
+    Error_Handler();
+  }
+
+  elm_tx_cb(CanHandle);
 }
 

@@ -1,5 +1,3 @@
-void can_filters_clear();
-
 void can_init(CAN_TypeDef *CAN) {
   // enable CAN busses
   if (CAN == CAN1) {
@@ -102,61 +100,5 @@ int can_cksum(uint8_t *dat, int len, int addr, int idx) {
   return s&0xF;
 }
 
-void can_filters_clear(CAN_TypeDef *CAN) {
-    // accept all filter
-    CAN->FMR |= CAN_FMR_FINIT;
 
-    // no mask
-    CAN->sFilterRegister[0].FR1 = 0;
-    CAN->sFilterRegister[0].FR2 = 0;
-    CAN->sFilterRegister[14].FR1 = 0;
-    CAN->sFilterRegister[14].FR2 = 0;
-    CAN->FA1R |= 1 | (1 << 14);
-
-    CAN->FMR &= ~(CAN_FMR_FINIT);
-}
-
-//TODO
-void can_change_baudrate(CAN_TypeDef *CAN) {
-}
-
-
-//Sets the filter or the mask, assuming 32 bit filter 
-//-1 means the value should not change
-void can_set_filter(CAN_TypeDef *CAN, int filter, int mask) {
-
-  uint32_t filter_number_bit_pos = 0;
-
-  filter_number_bit_pos = 0;    //filter 0
-
-  if (filter == -1)
-      filter = CAN->sFilterRegister[0].FR1;
-  if (mask == -1) 
-      mask = CAN->sFilterRegister[0].FR2;
-
-  /* Initialisation mode for the filter */
-  CAN->FMR |= CAN_FMR_FINIT;
-
-  /* Filter Deactivation */
-  CAN->FA1R &= ~(uint32_t)filter_number_bit_pos;
-
-   /* 32-bit scale for the filter */
-    CAN->FS1R |= filter_number_bit_pos;
-    /* 32-bit identifier or First 32-bit identifier */
-    CAN->sFilterRegister[0].FR1 = filter;
-    /* 32-bit mask or Second 32-bit identifier */
-    CAN->sFilterRegister[0].FR2 = mask;
-
-  /*Id/Mask mode for the filter*/
-  CAN->FM1R &= ~(uint32_t)filter_number_bit_pos;
-
-  /* FIFO 0 assignation for the filter */
-  CAN->FFA1R &= ~(uint32_t)filter_number_bit_pos;
-
-  /* Filter activation */
-  CAN->FA1R |= filter_number_bit_pos;
-
-  /* Leave the initialisation mode for the filter */
-  CAN->FMR &= ~CAN_FMR_FINIT;
-}
 
