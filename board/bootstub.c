@@ -48,9 +48,6 @@ void fail() {
 }
 
 int main() {
-  RSAPublicKey release_rsa_key;
-  RSAPublicKey debug_rsa_key;
-
   clock_init();
 
   // validate length

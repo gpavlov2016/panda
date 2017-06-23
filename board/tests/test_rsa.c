@@ -10,7 +10,7 @@ char buf[MAX_LEN];
 
 #include "../crypto/sha.h"
 #include "../crypto/rsa.h"
-//#include "../obj/cert.h"
+#include "../obj/cert.h"
 
 int main() {
   FILE *f = fopen("../obj/panda.bin", "rb");
