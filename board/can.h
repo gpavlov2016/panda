@@ -49,7 +49,17 @@ void can_init(CAN_TypeDef *CAN) {
     puts("CAN init done\n");
   }
 
-  can_filters_clear();
+  // accept all filter
+  CAN->FMR |= CAN_FMR_FINIT;
+
+  // no mask
+  CAN->sFilterRegister[0].FR1 = 0;
+  CAN->sFilterRegister[0].FR2 = 0;
+  CAN->sFilterRegister[14].FR1 = 0;
+  CAN->sFilterRegister[14].FR2 = 0;
+  CAN->FA1R |= 1 | (1 << 14);
+
+  CAN->FMR &= ~(CAN_FMR_FINIT);
 
   // enable all CAN interrupts
   CAN->IER = 0xFFFFFFFF;
@@ -99,6 +109,4 @@ int can_cksum(uint8_t *dat, int len, int addr, int idx) {
   s = 8-s;
   return s&0xF;
 }
-
-
 

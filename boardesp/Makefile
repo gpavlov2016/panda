@@ -1,8 +1,6 @@
 PATH := esp-open-sdk/xtensa-lx106-elf/bin:$(PATH)
 CC = xtensa-lx106-elf-gcc
-PROJ_NAME = panda
 CFLAGS = -Iinclude/ -I. -I../ -mlongcalls -Iesp-open-sdk/ESP8266_NONOS_SDK_V1.5.4_16_05_20/driver_lib/include -std=c99 -DICACHE_FLASH
-CFLAGS += -I../board -I../board/inc -DSTM32F4 -DSTM32F413xx
 LDLIBS = -nostdlib -Wl,--start-group -lmain -lnet80211 -lwpa -llwip -lpp -lphy -Wl,--end-group -lgcc -ldriver -Wl,--gc-sections
 LDFLAGS = -Teagle.app.v6.ld
 OBJCP = xtensa-lx106-elf-objcopy
@@ -43,9 +41,6 @@ endif
 
 webserver.o: webserver.c cert.h gitversion.h
 
-main.o: ../board/main.c
-	$(CC) $(CFLAGS) -c $^ -o $@
-
 sha.o: ../crypto/sha.c
 	$(CC) $(CFLAGS) -c $^ -o $@
 
@@ -55,7 +50,7 @@ rsa.o: ../crypto/rsa.c
 oldflash: proxy-0x00000.bin
 	./tools/esptool.py write_flash 0 proxy-0x00000.bin 0x40000 proxy-0x40000.bin
 
-user1.bin: proxy.o elm327.o webserver.o sha.o rsa.o main.o
+user1.bin: proxy.o elm327.o webserver.o sha.o rsa.o
 	$(CC) $(CFLAGS) $^ -o a.out -L$(SDK_BASE)/ld -T$(SDK_BASE)/ld/eagle.app.v6.new.1024.app1.ld $(LDLIBS)
 	$(OBJCP) --only-section .text -O binary a.out eagle.app.v6.text.bin
 	$(OBJCP) --only-section .data -O binary a.out eagle.app.v6.data.bin
@@ -66,7 +61,7 @@ user1.bin: proxy.o elm327.o webserver.o sha.o rsa.o main.o
 	mv eagle.app.flash.bin $@
 	../crypto/sign.py $@ $@ $(CERT)
 
-user2.bin: proxy.o elm327.o webserver.o sha.o rsa.o main.o
+user2.bin: proxy.o elm327.o webserver.o sha.o rsa.o
 	$(CC) $(CFLAGS) $^ -o a.out -L$(SDK_BASE)/ld -T$(SDK_BASE)/ld/eagle.app.v6.new.1024.app2.ld $(LDLIBS)
 	$(OBJCP) --only-section .text -O binary a.out eagle.app.v6.text.bin
 	$(OBJCP) --only-section .data -O binary a.out eagle.app.v6.data.bin

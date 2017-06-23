@@ -1,5 +1,5 @@
 CFLAGS += -I inc -I ../ -nostdlib -fno-builtin
-CFLAGS += -Tstm32_flash.ld
+CFLAGS += -Tstm32_flash.ld -ISTM32F4xx_HAL_Driver/Inc 
 
 CC = arm-none-eabi-gcc
 OBJCOPY = arm-none-eabi-objcopy
@@ -64,6 +64,30 @@ obj/cert.h: ../crypto/getcertheader.py
 obj/bootstub.$(PROJ_NAME).o: bootstub.c early.h obj/cert.h spi_flasher.h
 	$(CC) $(CFLAGS) -o $@ -c $<
 
+obj/elm327.$(PROJ_NAME).o: elm327.c *.h obj/gitversion.h
+	$(CC) $(CFLAGS) -o $@ -c $<
+
+obj/spi.$(PROJ_NAME).o: spi.c *.h obj/gitversion.h
+	$(CC) $(CFLAGS) -o $@ -c $<
+
+obj/stm32f4xx_hal_can.$(PROJ_NAME).o: STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_can.c *.h obj/gitversion.h
+	$(CC) $(CFLAGS) -o $@ -c $<
+
+obj/stm32f4xx_hal_spi.$(PROJ_NAME).o: STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_spi.c *.h obj/gitversion.h
+	$(CC) $(CFLAGS) -o $@ -c $<
+
+obj/stm32f4xx_hal_dma.$(PROJ_NAME).o: STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dma.c *.h obj/gitversion.h
+	$(CC) $(CFLAGS) -o $@ -c $<
+
+obj/stm32f4xx_hal.$(PROJ_NAME).o: STM32F4xx_HAL_Driver/Src/stm32f4xx_hal.c *.h obj/gitversion.h
+	$(CC) $(CFLAGS) -o $@ -c $<
+
+obj/stm32f4xx_hal_cortex.$(PROJ_NAME).o: stm32f4xx_hal_cortex.c *.h obj/gitversion.h
+	$(CC) $(CFLAGS) -o $@ -c $<
+
+obj/system_stm32f4xx.$(PROJ_NAME).o: system_stm32f4xx.c *.h obj/gitversion.h
+	$(CC) $(CFLAGS) -o $@ -c $<
+
 obj/main.$(PROJ_NAME).o: main.c *.h obj/gitversion.h
 	$(CC) $(CFLAGS) -o $@ -c $<
 
@@ -78,13 +102,13 @@ obj/$(STARTUP_FILE).o: $(STARTUP_FILE).s
 	mkdir -p obj
 	$(CC) $(CFLAGS) -o $@ -c $<
 
-obj/$(PROJ_NAME).bin: obj/$(STARTUP_FILE).o obj/main.$(PROJ_NAME).o
+obj/$(PROJ_NAME).bin: obj/$(STARTUP_FILE).o obj/main.$(PROJ_NAME).o obj/elm327.$(PROJ_NAME).o obj/spi.$(PROJ_NAME).o obj/stm32f4xx_hal_can.$(PROJ_NAME).o obj/stm32f4xx_hal.$(PROJ_NAME).o obj/stm32f4xx_hal_cortex.$(PROJ_NAME).o obj/system_stm32f4xx.$(PROJ_NAME).o obj/stm32f4xx_hal_spi.$(PROJ_NAME).o obj/stm32f4xx_hal_dma.$(PROJ_NAME).o
   # hack
 	$(CC) -Wl,--section-start,.isr_vector=0x8004000 $(CFLAGS) -o obj/$(PROJ_NAME).elf $^
 	$(OBJCOPY) -v -O binary obj/$(PROJ_NAME).elf obj/code.bin
 	SETLEN=1 ../crypto/sign.py obj/code.bin $@ $(CERT)
 
-obj/bootstub.$(PROJ_NAME).bin: obj/$(STARTUP_FILE).o obj/bootstub.$(PROJ_NAME).o obj/sha.$(PROJ_NAME).o obj/rsa.$(PROJ_NAME).o
+obj/bootstub.$(PROJ_NAME).bin: obj/$(STARTUP_FILE).o obj/bootstub.$(PROJ_NAME).o obj/sha.$(PROJ_NAME).o obj/rsa.$(PROJ_NAME).o obj/spi.$(PROJ_NAME).o
 	$(CC) $(CFLAGS) -o obj/bootstub.$(PROJ_NAME).elf $^
 	$(OBJCOPY) -v -O binary obj/bootstub.$(PROJ_NAME).elf $@
 	

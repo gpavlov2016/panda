@@ -20,6 +20,7 @@
 
 #define NULL ((void*)0)
 
+
 #include "early.h"
 
 // assign CAN numbering
@@ -34,6 +35,8 @@
 // *** end config ***
 
 #include "obj/gitversion.h"
+#include "elm327.h"
+
 
 // debug safety check: is controls allowed?
 int controls_allowed = 0;
@@ -374,8 +377,6 @@ void CAN3_TX_IRQHandler() {
 }
 #endif
 
-void elm_tx_cb(CAN_FIFOMailBox_TypeDef *can_pkt);   //from elm327.c
-
 // CAN receive handlers
 // blink blue when we are receiving CAN messages
 void can_rx(CAN_TypeDef *CAN, int can_number) {
@@ -395,9 +396,6 @@ void can_rx(CAN_TypeDef *CAN, int can_number) {
 
     set_led(LED_BLUE, 1);
     push(&can_rx_q, &to_push);
-
-    //Send also through elm327 i/f emulator:
-    elm_tx_cb(&to_push);
 
     // next
     CAN->RF0R |= CAN_RF0R_RFOM0;
@@ -806,6 +804,8 @@ void __initialize_hardware_early() {
   early();
 }
 
+static uint8_t elm327_emu = 1;
+
 int main() {
   // init devices
   clock_init();
@@ -902,11 +902,20 @@ int main() {
 
   puts("OPTCR: "); puth(FLASH->OPTCR); puts("\n");
 
+  if (elm327_emu) {
+    elm327_init();
+  }
+  
   // LED should keep on blinking all the time
   uint64_t cnt;
   for (cnt=0;;cnt++) {
-    can_live = pending_can_live;
 
+    if (elm327_emu) {
+      //Checks if data is available and processes, otherwise returns
+      elm_process();
+    } else {
+      can_live = pending_can_live;
+    }
     // reset this every 16th pass
     if ((cnt&0xF) == 0) pending_can_live = 0;
 
